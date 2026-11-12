@@ -294,3 +294,162 @@ def reject_leave(
         "status": leave.status,
         "manager_remarks": leave.manager_remarks
     }
+# =====================================================
+# 6. MANAGER ANALYTICS DASHBOARD
+# =====================================================
+
+from collections import defaultdict
+from datetime import date
+import calendar
+
+
+@router.get("/manager/analytics")
+def get_manager_analytics(
+    db: Session = Depends(get_db),
+    current_manager: Employee = Depends(get_current_manager)
+):
+    today = date.today()
+
+    # Get all employees and leave requests
+    employees = db.query(Employee).filter(
+        Employee.role == "employee"
+    ).all()
+
+    leave_requests = db.query(LeaveRequest).all()
+
+    # Status overview
+    status_counts = {
+        "Pending": 0,
+        "Approved": 0,
+        "Rejected": 0
+    }
+
+    for leave in leave_requests:
+        if leave.status in status_counts:
+            status_counts[leave.status] += 1
+
+    # Employees currently on approved leave
+    employees_on_leave = set()
+
+    for leave in leave_requests:
+        if (
+            leave.status == "Approved"
+            and leave.start_date <= today <= leave.end_date
+        ):
+            employees_on_leave.add(leave.employee_id)
+
+    # Monthly leave overview - last 6 months
+    monthly_data = defaultdict(lambda: {
+        "requests": 0,
+        "days": 0
+    })
+
+    months = []
+
+    for offset in range(5, -1, -1):
+        month_number = today.month - offset
+        year = today.year
+
+        while month_number <= 0:
+            month_number += 12
+            year -= 1
+
+        month_key = f"{year}-{month_number:02d}"
+
+        months.append({
+            "month": month_key,
+            "label": calendar.month_abbr[month_number],
+            "requests": 0,
+            "days": 0
+        })
+
+    month_lookup = {
+        item["month"]: item for item in months
+    }
+
+    for leave in leave_requests:
+        month_key = leave.start_date.strftime("%Y-%m")
+
+        if month_key in month_lookup:
+            month_lookup[month_key]["requests"] += 1
+            month_lookup[month_key]["days"] += leave.total_days
+
+    # Employee-wise statistics
+    employee_statistics = []
+
+    for employee in employees:
+        employee_leaves = [
+            leave for leave in leave_requests
+            if leave.employee_id == employee.id
+        ]
+
+        employee_statistics.append({
+            "employee_id": employee.id,
+            "employee_name": employee.full_name,
+            "email": employee.email,
+            "leave_balance": employee.leave_balance,
+            "total_requests": len(employee_leaves),
+            "approved_requests": sum(
+                1 for leave in employee_leaves
+                if leave.status == "Approved"
+            ),
+            "pending_requests": sum(
+                1 for leave in employee_leaves
+                if leave.status == "Pending"
+            ),
+            "rejected_requests": sum(
+                1 for leave in employee_leaves
+                if leave.status == "Rejected"
+            )
+        })
+
+    # Upcoming approved leaves
+    upcoming_leaves = []
+
+    upcoming = db.query(
+        LeaveRequest,
+        Employee
+    ).join(
+        Employee,
+        LeaveRequest.employee_id == Employee.id
+    ).filter(
+        LeaveRequest.status == "Approved",
+        LeaveRequest.start_date >= today
+    ).order_by(
+        LeaveRequest.start_date.asc()
+    ).limit(10).all()
+
+    for leave, employee in upcoming:
+        upcoming_leaves.append({
+            "employee_name": employee.full_name,
+            "start_date": leave.start_date,
+            "end_date": leave.end_date,
+            "total_days": leave.total_days
+        })
+
+    return {
+        "manager": current_manager.full_name,
+
+        "overview": {
+            "total_employees": len(employees),
+            "total_requests": len(leave_requests),
+            "pending_requests": status_counts["Pending"],
+            "approved_requests": status_counts["Approved"],
+            "rejected_requests": status_counts["Rejected"],
+            "employees_on_leave_today": len(employees_on_leave)
+        },
+
+        "leave_status_chart": [
+            {
+                "status": status,
+                "count": count
+            }
+            for status, count in status_counts.items()
+        ],
+
+        "monthly_leave_chart": months,
+
+        "employee_statistics": employee_statistics,
+
+        "upcoming_leaves": upcoming_leaves
+    }

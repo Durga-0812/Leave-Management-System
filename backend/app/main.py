@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -8,6 +10,7 @@ from app.routes.auth import router as auth_router
 from app.routes.leaves import router as leaves_router
 
 
+# Create database tables
 Base.metadata.create_all(bind=engine)
 
 
@@ -18,9 +21,24 @@ app = FastAPI(
 )
 
 
+# Allowed frontend origins
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+]
+
+# Add deployed Vercel frontend URL from environment
+frontend_url = os.getenv("FRONTEND_URL")
+
+if frontend_url:
+    allowed_origins.append(frontend_url.rstrip("/"))
+
+
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]

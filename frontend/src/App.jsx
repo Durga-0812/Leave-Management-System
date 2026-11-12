@@ -1,8 +1,23 @@
-
 import { useState, useEffect } from "react";
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  Legend,
+  BarChart,
+  Bar,
+  CartesianGrid,
+  XAxis,
+  YAxis
+} from "recharts";
+
 import "./App.css";
 
-const API = "http://127.0.0.1:8001";
+const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8002";
+
+const chartColors = ["#16a34a", "#f59e0b", "#dc2626"];
 
 // ================= LEAVE CALENDAR =================
 
@@ -142,9 +157,14 @@ function App() {
   const [managerLoading, setManagerLoading] = useState(false);
   const [decisionLoading, setDecisionLoading] = useState(false);
 
-  // Search and filter
   const [managerSearch, setManagerSearch] = useState("");
   const [managerStatusFilter, setManagerStatusFilter] = useState("All");
+
+  // ================= MANAGER ANALYTICS STATES =================
+
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsMessage, setAnalyticsMessage] = useState("");
 
   // ================= EMPLOYEE STATISTICS =================
 
@@ -267,8 +287,10 @@ function App() {
     setUser(null);
     setLeaveHistory([]);
     setManagerRequests([]);
+    setAnalytics(null);
     setLeaveMessage("");
     setManagerMessage("");
+    setAnalyticsMessage("");
     setRemarks({});
     setManagerSearch("");
     setManagerStatusFilter("All");
@@ -371,6 +393,47 @@ function App() {
     }
   };
 
+  // ================= LOAD MANAGER ANALYTICS =================
+
+  const loadManagerAnalytics = async () => {
+    const token = localStorage.getItem("leave_token");
+
+    if (!token) return;
+
+    setAnalyticsLoading(true);
+    setAnalyticsMessage("");
+
+    try {
+      const response = await fetch(
+        API + "/api/leaves/manager/analytics",
+        {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.status === 401) {
+        logout();
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Unable to load manager analytics"
+        );
+      }
+
+      setAnalytics(data);
+    } catch (error) {
+      setAnalyticsMessage(error.message);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
   // ================= LOAD DASHBOARD DATA =================
 
   useEffect(() => {
@@ -380,6 +443,7 @@ function App() {
 
     if (user?.role === "manager") {
       loadManagerRequests();
+      loadManagerAnalytics();
     }
   }, [user?.role]);
 
@@ -492,6 +556,7 @@ function App() {
       );
 
       await loadManagerRequests();
+      await loadManagerAnalytics();
     } catch (error) {
       setManagerMessage(error.message);
     } finally {
@@ -575,13 +640,23 @@ function App() {
             )}
 
             {user.role === "manager" && (
-              <button
-                className="sidebar-link"
-                onClick={() => scrollToSection("manager-requests")}
-              >
-                <span>☷</span>
-                Leave Requests
-              </button>
+              <>
+                <button
+                  className="sidebar-link"
+                  onClick={() => scrollToSection("manager-analytics")}
+                >
+                  <span>📊</span>
+                  Manager Analytics
+                </button>
+
+                <button
+                  className="sidebar-link"
+                  onClick={() => scrollToSection("manager-requests")}
+                >
+                  <span>☷</span>
+                  Leave Requests
+                </button>
+              </>
             )}
           </nav>
 
@@ -840,6 +915,268 @@ function App() {
 
           {user.role === "manager" && (
             <>
+
+              {/* MANAGER ANALYTICS */}
+
+              <section
+                className="analytics-section"
+                id="manager-analytics"
+              >
+                <div className="analytics-header">
+                  <div>
+                    <h2>Manager Analytics</h2>
+                    <p>
+                      Organization-wide leave management insights.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={loadManagerAnalytics}
+                    disabled={analyticsLoading}
+                  >
+                    {analyticsLoading
+                      ? "Loading..."
+                      : "Refresh Analytics"}
+                  </button>
+                </div>
+
+                {analyticsMessage && (
+                  <p className="message">{analyticsMessage}</p>
+                )}
+
+                {analyticsLoading && !analytics ? (
+                  <p>Loading analytics...</p>
+                ) : analytics ? (
+                  <>
+
+                    {/* OVERVIEW CARDS */}
+
+                    <div className="analytics-cards">
+
+                      <div className="analytics-card">
+                        <span>Total Employees</span>
+                        <h3>
+                          {analytics.overview.total_employees}
+                        </h3>
+                      </div>
+
+                      <div className="analytics-card">
+                        <span>Total Requests</span>
+                        <h3>
+                          {analytics.overview.total_requests}
+                        </h3>
+                      </div>
+
+                      <div className="analytics-card pending">
+                        <span>Pending Requests</span>
+                        <h3>
+                          {analytics.overview.pending_requests}
+                        </h3>
+                      </div>
+
+                      <div className="analytics-card approved">
+                        <span>Approved Requests</span>
+                        <h3>
+                          {analytics.overview.approved_requests}
+                        </h3>
+                      </div>
+
+                      <div className="analytics-card rejected">
+                        <span>Rejected Requests</span>
+                        <h3>
+                          {analytics.overview.rejected_requests}
+                        </h3>
+                      </div>
+
+                      <div className="analytics-card">
+                        <span>Employees on Leave Today</span>
+                        <h3>
+                          {analytics.overview.employees_on_leave_today}
+                        </h3>
+                      </div>
+
+                    </div>
+
+                    {/* CHARTS */}
+
+                    <div className="analytics-charts">
+
+                      {/* PIE CHART */}
+
+                      <div className="analytics-chart-card">
+                        <h3>Leave Status Distribution</h3>
+
+                        {analytics.leave_status_chart?.length > 0 ? (
+                          <ResponsiveContainer
+                            width="100%"
+                            height={300}
+                          >
+                            <PieChart>
+                              <Pie
+                                data={analytics.leave_status_chart}
+                                dataKey="count"
+                                nameKey="status"
+                                cx="50%"
+                                cy="50%"
+                                outerRadius={95}
+                                label
+                              >
+                                {analytics.leave_status_chart.map(
+                                  (item, index) => (
+                                    <Cell
+                                      key={item.status}
+                                      fill={
+                                        chartColors[
+                                          index % chartColors.length
+                                        ]
+                                      }
+                                    />
+                                  )
+                                )}
+                              </Pie>
+
+                              <Tooltip />
+                              <Legend />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <p>No leave statistics available.</p>
+                        )}
+                      </div>
+
+                      {/* BAR CHART */}
+
+                      <div className="analytics-chart-card">
+                        <h3>Monthly Leave Statistics</h3>
+
+                        {analytics.monthly_leave_chart?.length > 0 ? (
+                          <ResponsiveContainer
+                            width="100%"
+                            height={300}
+                          >
+                            <BarChart
+                              data={analytics.monthly_leave_chart}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" />
+
+                              <XAxis dataKey="label" />
+                              <YAxis />
+
+                              <Tooltip />
+                              <Legend />
+
+                              <Bar
+                                dataKey="requests"
+                                name="Requests"
+                                fill="#6366f1"
+                                radius={[6, 6, 0, 0]}
+                              />
+
+                              <Bar
+                                dataKey="days"
+                                name="Leave Days"
+                                fill="#14b8a6"
+                                radius={[6, 6, 0, 0]}
+                              />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <p>No monthly statistics available.</p>
+                        )}
+                      </div>
+
+                    </div>
+
+                    {/* EMPLOYEE STATISTICS TABLE */}
+
+                    <div className="analytics-table-card">
+                      <h3>Employee-wise Leave Statistics</h3>
+
+                      <div className="analytics-table-wrapper">
+                        <table className="analytics-table">
+
+                          <thead>
+                            <tr>
+                              <th>Employee</th>
+                              <th>Email</th>
+                              <th>Leave Balance</th>
+                              <th>Total</th>
+                              <th>Approved</th>
+                              <th>Pending</th>
+                              <th>Rejected</th>
+                            </tr>
+                          </thead>
+
+                          <tbody>
+                            {analytics.employee_statistics?.length > 0 ? (
+                              analytics.employee_statistics.map(
+                                (employee) => (
+                                  <tr key={employee.id}>
+                                    <td>{employee.name}</td>
+                                    <td>{employee.email}</td>
+                                    <td>{employee.leave_balance}</td>
+                                    <td>{employee.total_requests}</td>
+                                    <td>{employee.approved_requests}</td>
+                                    <td>{employee.pending_requests}</td>
+                                    <td>{employee.rejected_requests}</td>
+                                  </tr>
+                                )
+                              )
+                            ) : (
+                              <tr>
+                                <td colSpan="7">
+                                  No employee statistics available.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* UPCOMING LEAVES */}
+
+                    <div className="analytics-table-card">
+                      <h3>Upcoming Approved Leaves</h3>
+
+                      {analytics.upcoming_leaves?.length === 0 ? (
+                        <p>No upcoming approved leaves.</p>
+                      ) : (
+                        <div className="analytics-upcoming-list">
+                          {analytics.upcoming_leaves?.map(
+                            (leave, index) => (
+                              <div
+                                className="analytics-upcoming-item"
+                                key={`${leave.employee_name}-${leave.start_date}-${index}`}
+                              >
+                                <strong>
+                                  {leave.employee_name}
+                                </strong>
+
+                                <span>
+                                  {leave.start_date} to {leave.end_date}
+                                </span>
+
+                                <span>
+                                  {leave.total_days} days
+                                </span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                  </>
+                ) : (
+                  <p>Analytics data is not available.</p>
+                )}
+              </section>
+
+              {/* MANAGER STATISTICS */}
+
               <div className="dashboard-card">
                 <h3>Total Requests</h3>
                 <p>{managerTotal}</p>

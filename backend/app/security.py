@@ -1,3 +1,7 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import datetime, timedelta, timezone
@@ -10,7 +14,18 @@ from app.database import get_db
 from app.models import Employee
 
 
-SECRET_KEY = "leave-management-secret-key-change-later"
+# Load local environment variables
+BASE_DIR = Path(__file__).resolve().parents[2]
+load_dotenv(BASE_DIR / ".env.local")
+
+# Secure JWT configuration
+SECRET_KEY = os.getenv("SECRET_KEY")
+
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY environment variable is missing."
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
@@ -55,7 +70,9 @@ def get_current_employee(
         detail="Invalid or expired authentication token",
         headers={"WWW-Authenticate": "Bearer"}
     )
-    token = credentials.credentials    
+
+    token = credentials.credentials
+
     try:
         payload = jwt.decode(
             token,
@@ -68,7 +85,7 @@ def get_current_employee(
         if employee_id is None:
             raise credentials_exception
 
-    except JWTError:
+    except (JWTError, ValueError, TypeError):
         raise credentials_exception
 
     employee = db.query(Employee).filter(
@@ -79,6 +96,8 @@ def get_current_employee(
         raise credentials_exception
 
     return employee
+
+
 def get_current_manager(
     current_employee: Employee = Depends(get_current_employee)
 ):
